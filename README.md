@@ -11,6 +11,8 @@ Das System besteht aus zwei Teilen. Einer Anwendung, welche Anfragen ähnlich ei
 einer (oder mehrerer) Agent-Anwendung (en), die im Zielnetzwerk Anfragen abruft, weiterleitet und die Antwort
 zurücksendet.
 
+![](docs/flow.png)
+
 ## Konfiguration
 
 Eine typische Konfiguration für den Proxy sieht wie folgt aus. Es sind mehrere Agents für jeweils ein Zielsystem
