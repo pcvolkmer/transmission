@@ -24,7 +24,9 @@ pub struct StoredRequest {
 
 impl StoredRequest {
     pub fn hmac(&self, key: &str) -> String {
-        let mut mac = Hmac::<Sha256>::new_from_slice(key.as_bytes()).unwrap();
+        let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(key.as_bytes()) else {
+            return String::new();
+        };
         mac.update(serde_json::to_string(self).unwrap_or_default().as_bytes());
 
         hex::encode(mac.finalize().into_bytes())
@@ -43,6 +45,7 @@ impl StoredRequest {
 #[derive(Debug)]
 pub struct PendingRequest {
     pub request: StoredRequest,
+    pub timestamp: u64,
     pub response_tx: Option<oneshot::Sender<AgentResponse>>,
 }
 
@@ -126,12 +129,12 @@ pub fn decrypt_with(encrypted: &str, key: [u8; 32]) -> Result<String, ()> {
             Nonce::from_slice(
                 base64::engine::general_purpose::STANDARD_NO_PAD
                     .decode(nonce.as_bytes())
-                    .unwrap()
+                    .map_err(|_| ())?
                     .as_slice(),
             ),
             base64::engine::general_purpose::STANDARD_NO_PAD
                 .decode(ciphertext.as_bytes())
-                .unwrap()
+                .map_err(|_| ())?
                 .as_slice(),
         )
         .map_err(|_| ())?;

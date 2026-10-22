@@ -9,11 +9,8 @@ use std::sync::LazyLock;
 use tokio_stream::StreamExt;
 use transmission::{AgentResponse, StoredRequest, create_shared_secret};
 
-const CONFIG: LazyLock<Config> = LazyLock::new(|| {
-    Config::parse()
-        .map_err(|_| "Failed to parse config")
-        .unwrap()
-});
+#[allow(clippy::expect_used)]
+const CONFIG: LazyLock<Config> = LazyLock::new(|| Config::parse().expect("Failed to parse config"));
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
@@ -76,11 +73,11 @@ async fn handle_event(event: Event) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
 
-    let shared_secret =
-        create_shared_secret(&CONFIG.secret(), &CONFIG.other_public(), &event.data).unwrap();
+    let shared_secret = create_shared_secret(&CONFIG.secret(), &CONFIG.other_public(), &event.data)
+        .map_err(|()| "Failed to create shared secret")?;
 
     let stored_request = StoredRequest::decrypt_with(&stored_request, shared_secret)
-        .map_err(|_| "Decrypt error".to_string())?;
+        .map_err(|()| "Decrypt error".to_string())?;
 
     let method = Method::from_str(stored_request.method.as_str())
         .map_err(|_| stored_request.method)
@@ -113,13 +110,13 @@ async fn handle_event(event: Event) -> Result<(), String> {
     let mut headers = HeaderMap::new();
     for (name, value) in stored_request.headers {
         headers.insert(
-            HeaderName::from_bytes(name.as_bytes()).unwrap(),
-            HeaderValue::from_bytes(value.as_bytes()).unwrap(),
+            HeaderName::from_bytes(name.as_bytes()).map_err(|err| err.to_string())?,
+            HeaderValue::from_bytes(value.as_bytes()).map_err(|err| err.to_string())?,
         );
     }
     headers.insert(
         HOST,
-        HeaderValue::from_str(&CONFIG.destination().name).unwrap(),
+        HeaderValue::from_str(&CONFIG.destination().name).map_err(|err| err.to_string())?,
     );
 
     let response = reqwest::Client::new()
@@ -148,7 +145,11 @@ async fn handle_event(event: Event) -> Result<(), String> {
                         )
                     })
                     .collect(),
-                body: response.bytes().await.unwrap().to_vec(),
+                body: response
+                    .bytes()
+                    .await
+                    .map_err(|err| err.to_string())?
+                    .to_vec(),
             }
             .encrypt_with(shared_secret),
         )

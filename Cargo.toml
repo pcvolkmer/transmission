@@ -5,7 +5,7 @@ edition = "2024"
 
 [workspace]
 resolver = "3"
-members = ["proxy", "agent"]
+members = [".", "proxy", "agent"]
 default-members = ["proxy", "agent"]
 
 [[bin]]
@@ -39,3 +39,16 @@ x25519-dalek = { version = "3.0", features = ["static_secrets"] }
 hkdf = "0.13"
 clap = { version = "4.6.7", features = ["derive"] }
 toml = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Lints
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+pedantic = { level = "warn", priority = -1 }
+
+[lints.rust]
+unused_must_use = "deny"

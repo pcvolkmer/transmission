@@ -10,7 +10,7 @@ use base64::Engine;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::net::TcpListener;
 use tokio::select;
 use tokio::sync::broadcast::Sender;
@@ -20,11 +20,8 @@ use uuid::Uuid;
 
 pub mod config;
 
-const CONFIG: LazyLock<Config> = LazyLock::new(|| {
-    Config::parse()
-        .map_err(|_| "Failed to parse config")
-        .unwrap()
-});
+#[allow(clippy::expect_used)]
+const CONFIG: LazyLock<Config> = LazyLock::new(|| Config::parse().expect("Failed to parse config"));
 
 #[derive(Clone)]
 pub struct AppState {
@@ -48,6 +45,7 @@ pub async fn handle_proxy_request_root(
     handle_proxy_request(state, path, request).await
 }
 
+#[allow(clippy::expect_used)]
 pub async fn handle_proxy_request(
     State(state): State<AppState>,
     Path(path): Path<(String, Option<String>)>,
@@ -57,10 +55,7 @@ pub async fn handle_proxy_request(
     if let Some(size) = body.size_hint().exact()
         && size > 10 * 1024 * 1024
     {
-        return Response::builder()
-            .status(StatusCode::PAYLOAD_TOO_LARGE)
-            .body(Body::empty())
-            .unwrap();
+        return (StatusCode::PAYLOAD_TOO_LARGE, "").into_response();
     }
 
     let (response_tx, response_rx) = oneshot::channel();
@@ -72,7 +67,7 @@ pub async fn handle_proxy_request(
         destination: path.0.clone(),
         method: parts.method.to_string(),
         uri: match path.1 {
-            Some(uri) => format!("/{}", uri.to_string()),
+            Some(uri) => format!("/{}", uri),
             None => "".to_string(),
         },
         headers: parts
@@ -85,27 +80,50 @@ pub async fn handle_proxy_request(
                 )
             })
             .collect(),
-        body: base64::engine::general_purpose::STANDARD
-            .encode(to_bytes(body, 10 * 1024 * 1024).await.unwrap().to_vec()),
+        body: base64::engine::general_purpose::STANDARD.encode(
+            to_bytes(body, 10 * 1024 * 1024)
+                .await
+                .expect("Failed to Base64 encode body")
+                .to_vec(),
+        ),
     };
 
     let hmac = if let Some(agent_config) = &CONFIG.agent(&path.0) {
         stored_request.hmac(&agent_config.shared_secret)
     } else {
+        log::error!(
+            "ID {} - skipping {} request for unknown agent '{}'",
+            uuid,
+            stored_request.method.to_ascii_uppercase(),
+            stored_request.destination,
+        );
+
         return Response::builder()
             .status(StatusCode::BAD_GATEWAY)
             .header(
-                HeaderName::from_str("X-Via").unwrap(),
-                HeaderValue::from_str("transmission").unwrap(),
+                HeaderName::from_str("X-Via").expect("X-Via name"),
+                HeaderValue::from_str("transmission").expect("X-Via value"),
             )
             .body(Body::empty())
-            .unwrap();
+            .expect("Unable to build response");
     };
+
+    log::info!(
+        "ID {} - {} request for agent '{}' '{}'",
+        uuid,
+        stored_request.method.to_ascii_uppercase(),
+        stored_request.destination,
+        stored_request.uri
+    );
 
     state.pending.lock().await.insert(
         uuid.clone(),
         PendingRequest {
             request: stored_request,
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("Time went backwards")
+                .as_secs(),
             response_tx: Some(response_tx),
         },
     );
@@ -122,32 +140,44 @@ pub async fn handle_proxy_request(
     let result = select! {
         _ = a => {
             state.pending.lock().await.remove(&uuid.clone());
+            log::warn!(
+                "ID {} - Timed out",
+                uuid,
+            );
             Response::builder()
-            .status(StatusCode::GATEWAY_TIMEOUT)
-            .header(HeaderName::from_str("X-Via").unwrap(), HeaderValue::from_str("transmission").unwrap())
-            .body(Body::empty())
-            .unwrap()
+                .status(StatusCode::GATEWAY_TIMEOUT)
+                .header(HeaderName::from_str("X-Via").expect("X-Via header name"), HeaderValue::from_str("transmission").expect("X-Via header value"))
+                .body(Body::empty())
+                .expect("Unable to build response")
         },
         br = b => {
             if let Ok(response) = br {
                 state.pending.lock().await.remove(&uuid.clone());
                 let mut headers = HeaderMap::new();
                 for (name, value) in response.clone().headers {
-                    headers.insert(HeaderName::from_bytes(name.as_bytes()).unwrap(), HeaderValue::from_bytes(value.as_bytes()).unwrap());
+                    headers.insert(HeaderName::from_bytes(name.as_bytes()).expect("X-Via header name"), HeaderValue::from_bytes(value.as_bytes()).expect("X-Via header value"));
                 }
-                headers.insert(HeaderName::from_str("X-Via").unwrap(), HeaderValue::from_str("transmission").unwrap());
+                headers.insert(HeaderName::from_str("X-Via").expect("X-Via header name"), HeaderValue::from_str("transmission").expect("X-Via header value"));
+                log::info!(
+                    "ID {} - Response returned",
+                    uuid,
+                );
                 (
-                    StatusCode::from_u16(response.status).unwrap(),
+                    StatusCode::from_u16(response.status).expect("Status code set"),
                     headers,
                     response.body
                 ).into_response()
             } else {
                 state.pending.lock().await.remove(&uuid.clone());
-                Response::builder()
-                    .status(StatusCode::BAD_GATEWAY)
-                    .header(HeaderName::from_str("X-Via").unwrap(), HeaderValue::from_str("transmission").unwrap())
-                    .body(Body::empty())
-                    .unwrap()
+                log::warn!(
+                    "ID {} - Bad gateway",
+                    uuid,
+                );
+            Response::builder()
+                .status(StatusCode::BAD_GATEWAY)
+                .header(HeaderName::from_str("X-Via").expect("X-Via header name"), HeaderValue::from_str("transmission").expect("X-Via header value"))
+                .body(Body::empty())
+                .expect("Unable to build response")
             }
         },
     };
@@ -180,6 +210,7 @@ pub async fn handle_sse(
     Sse::new(stream)
 }
 
+#[allow(clippy::expect_used)]
 pub async fn handle_pending(
     State(state): State<AppState>,
     Path(path): Path<(String, String)>,
@@ -191,8 +222,8 @@ pub async fn handle_pending(
         && let Some(agent_config) = &CONFIG.agent(&pending_request.request.destination)
     {
         let hmac = pending_request.request.hmac(&agent_config.shared_secret);
-        let shared_secret =
-            create_shared_secret(&CONFIG.secret(), &agent_config.public_key, &hmac).unwrap();
+        let shared_secret = create_shared_secret(&CONFIG.secret(), &agent_config.public_key, &hmac)
+            .expect("Shared secret created");
 
         return (
             StatusCode::OK,
@@ -204,6 +235,7 @@ pub async fn handle_pending(
     (StatusCode::NOT_FOUND, "Not found").into_response()
 }
 
+#[allow(clippy::expect_used)]
 pub async fn handle_response(
     State(state): State<AppState>,
     Path(path): Path<(String, String)>,
@@ -220,12 +252,15 @@ pub async fn handle_response(
             let (_, body) = request.into_parts();
             let hmac = pending_request.request.hmac(&agent_config.shared_secret);
             let shared_secret =
-                create_shared_secret(&CONFIG.secret(), &agent_config.public_key, &hmac).unwrap();
+                create_shared_secret(&CONFIG.secret(), &agent_config.public_key, &hmac)
+                    .expect("Shared Secret created");
             let agent_response = AgentResponse::decrypt_with(
-                &String::from_utf8_lossy(to_bytes(body, 10 * 1024 * 1024).await.unwrap().as_ref()),
+                &String::from_utf8_lossy(
+                    to_bytes(body, 10 * 1024 * 1024).await.expect("").as_ref(),
+                ),
                 shared_secret,
             )
-            .unwrap();
+            .expect("Failed to decrypt response");
             let _ = response_tx.send(agent_response);
             return (StatusCode::OK, Json(pending_request.request.clone())).into_response();
         }
@@ -236,6 +271,20 @@ pub async fn handle_response(
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
+    #[cfg(debug_assertions)]
+    {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .init();
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::INFO)
+            .init();
+    }
+
     let (tx, _) = broadcast::channel(10);
 
     let state = AppState {
@@ -243,9 +292,45 @@ async fn main() -> Result<(), String> {
         tx,
     };
 
+    let pending = state.pending.clone();
+    tokio::spawn(async move {
+        #[allow(clippy::expect_used)]
+        loop {
+            tokio::time::sleep(Duration::from_mins(1)).await;
+            let dangling_timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("Time went backwards")
+                .checked_sub(Duration::from_mins(1))
+                .expect("Cannot find timestamp")
+                .as_secs();
+
+            let dangling_requests: Vec<String> = pending
+                .lock()
+                .await
+                .iter()
+                .filter_map(|(uuid, pending_request)| {
+                    if pending_request.timestamp < dangling_timestamp {
+                        Some(uuid.into())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            let len = dangling_requests.len();
+            if len > 0 {
+                for uuid in dangling_requests {
+                    pending.lock().await.remove(&uuid);
+                    log::warn!("ID {uuid} - removed dangling request")
+                }
+            }
+        }
+    });
+
     let routes = Router::new()
         .route("/events/{destination}", get(handle_sse))
         .route("/proxy/{destination}", any(handle_proxy_request_root))
+        .route("/proxy/{destination}/", any(handle_proxy_request_root))
         .route("/proxy/{destination}/{*path}", any(handle_proxy_request))
         .route("/pending/{destination}/{uuid}", get(handle_pending))
         .route("/pending/{destination}/{uuid}", post(handle_response))
@@ -253,7 +338,7 @@ async fn main() -> Result<(), String> {
 
     match TcpListener::bind(&CONFIG.listen()).await {
         Ok(listener) => {
-            log::info!("Starting application listening on '{}'", &CONFIG.listen());
+            log::info!("Starting application listening on '{}'", CONFIG.listen());
             if let Err(err) = axum::serve(listener, routes)
                 .with_graceful_shutdown(shutdown_signal())
                 .await
@@ -264,7 +349,7 @@ async fn main() -> Result<(), String> {
         Err(err) => {
             return Err(format!(
                 "Cannot listening on '{}': {}",
-                &CONFIG.listen(),
+                CONFIG.listen(),
                 err
             ));
         }

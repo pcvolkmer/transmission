@@ -71,26 +71,25 @@ curl -v http://localhost:3000/proxy/www.example.com
 
 ```mermaid
 sequenceDiagram
-    participant S as Source 
+    participant S as Source
     participant P as Proxy
     participant A as Agent
     participant D as Destination
-
-    A->>P: GET Request for Server-Sent-Events
-    S->>P: GET, POST, ... - HTTP-Request
-    P-->>A: Notification with UUID and Signature
-    Note over P,A: End-to-End encrypted
-    A->>P: GET stored HTTP-Request by UUID
-    A->>D: Forward HTTP-Request
-    A->>P: POST HTTP-Response
+    A ->> P: GET Request for Server-Sent-Events
+    S ->> P: GET, POST, ... - HTTP-Request
+    P -->> A: Notification with UUID and Signature
+    Note over P, A: End-to-End encrypted
+    A ->> P: GET stored HTTP-Request by UUID
+    A ->> D: Forward HTTP-Request
+    A ->> P: POST HTTP-Response
     alt
-        Note over S,P: Within 1 minute since request ...
-        P-->>S: Answer with HTTP-Response
+        Note over S, P: Within 1 minute since request ...
+        P -->> S: Answer with HTTP-Response
     else
-        Note over S,P: ... or else
-        P-->>S: Answer HTTP 504 - Gateway timeout
+        Note over S, P: ... or else
+        P -->> S: Answer HTTP 504 - Gateway timeout
     end
-    P->>P: Remove stored HTTP-request
+    P ->> P: Remove stored HTTP-request
 ```
 
 Agents bauen eine HTTP-Verbindung zum Proxy auf und warten auf eine Signalisierung in Form von Server-Sent-Events.
@@ -100,3 +99,5 @@ weitergeleitet und die Anfrage im Proxy gelöscht.
 
 Wird eine Anfrage nicht innerhalb einer Minute beantwortet wird dem Quellsystem mit `HTTP 504 - Gateway timeout` die
 Nichterreichbarkeit signalisiert. Auch dies führt zum Löschen der wartenden Anfrage im Proxy.
+
+Anfragen aus abgebrochenen Verbindungen werden minütlich ermittelt und ebenfalls entfernt.
