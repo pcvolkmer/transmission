@@ -9,6 +9,7 @@ use hmac::{Hmac, Mac};
 use rand::{RngExt, rng};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use std::io::Error;
 use tokio::sync::oneshot;
 use x25519_dalek::{PublicKey, StaticSecret};
 
@@ -67,7 +68,11 @@ impl AgentResponse {
     }
 }
 
-pub fn create_shared_secret(secret: &str, others_public: &str, salt: &str) -> Result<[u8; 32], ()> {
+pub fn create_shared_secret(
+    secret: &str,
+    others_public: &str,
+    salt: &str,
+) -> Result<[u8; 32], Error> {
     let secret: StaticSecret = decode_key(secret)?.into();
     let others_public: PublicKey = decode_key(others_public)?.into();
 
@@ -75,7 +80,8 @@ pub fn create_shared_secret(secret: &str, others_public: &str, salt: &str) -> Re
     let hk = Hkdf::<Sha256>::new(Some(salt.as_bytes()), shared_secret.as_bytes());
 
     let mut key = [0u8; 32];
-    hk.expand(b"chacha20-key", &mut key).map_err(|_| ())?;
+    hk.expand(b"chacha20-key", &mut key)
+        .map_err(|e| Error::other(e.to_string()))?;
 
     Ok(key)
 }
@@ -87,16 +93,25 @@ pub fn create_key_pair() -> (String, String) {
     (encode_key(secret.as_bytes()), encode_key(public.as_bytes()))
 }
 
+pub fn create_pub_key(private_key: &str) -> Result<String, Error> {
+    let secret = StaticSecret::from(decode_key(private_key)?);
+    let public = PublicKey::from(&secret);
+
+    Ok(encode_key(public.as_bytes()))
+}
+
 fn encode_key(key: &[u8; 32]) -> String {
     base64::engine::general_purpose::STANDARD_NO_PAD.encode(key)
 }
 
-fn decode_key(key: &str) -> Result<[u8; 32], ()> {
+fn decode_key(key: &str) -> Result<[u8; 32], Error> {
     let decoded = base64::engine::general_purpose::STANDARD_NO_PAD
         .decode(key)
-        .map_err(|_| ())?;
+        .map_err(|err| Error::other("Cannot decode public key"))?;
 
-    Ok(decoded.try_into().map_err(|_| ())?)
+    Ok(decoded
+        .try_into()
+        .map_err(|_| Error::other("Cannot decode public key2"))?)
 }
 
 fn encrypt_with(value: &str, key: [u8; 32]) -> String {

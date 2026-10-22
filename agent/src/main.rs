@@ -74,7 +74,7 @@ async fn handle_event(event: Event) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let shared_secret = create_shared_secret(&CONFIG.secret(), &CONFIG.other_public(), &event.data)
-        .map_err(|()| "Failed to create shared secret")?;
+        .map_err(|_| "Failed to create shared secret")?;
 
     let stored_request = StoredRequest::decrypt_with(&stored_request, shared_secret)
         .map_err(|()| "Decrypt error".to_string())?;

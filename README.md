@@ -49,6 +49,28 @@ name = "www.example.com"
 base_url = "https://www.example.com"
 ```
 
+### Schlüssel
+
+Schlüssel können mit den Utils erstellt werden.
+
+Geheimer Schlüssel:
+```bash
+transmission-utils genkey
+```
+
+Mit der Option `-v` wird das Schlüsselpaar zusammen ausgegeben:
+
+```angular2html
+$ transmission-utils genkey -v
+Public key:  rqzIRrUfzI2u7hdm3pcAmBAvklWF5qwq/CTTcKncbjs
+Private key: 6Vp9tsRFVIgBm/uBQg/vbuVm9C/rQYCqe2M3zz7d32A
+```
+
+Zum Ableiten des öffentlichen Schlüssels aus dem geheimen Schlüssel:
+```bash
+echo "<geheimer Schlüssel>" | transmission-utils pubkey
+```
+
 ## Ende-zu-Ende Verschlüsselung
 
 Alle Requests und Antworten werden symmetrisch mit dem AEAD-Algorithmus (Authenticated Encryption with Authenticated
