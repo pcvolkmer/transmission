@@ -1,4 +1,6 @@
 use aead::Generate;
+use axum::body::{Body, to_bytes};
+use axum::http::{HeaderMap, HeaderValue, Method};
 use base64::Engine;
 use chacha20poly1305::{
     ChaCha20Poly1305, Key, Nonce,
@@ -24,6 +26,41 @@ pub struct StoredRequest {
 }
 
 impl StoredRequest {
+    pub async fn new(
+        uuid: &str,
+        destination: &str,
+        method: Method,
+        uri: Option<String>,
+        headers: HeaderMap<HeaderValue>,
+        body: Body,
+    ) -> Result<Self, Error> {
+        let result = StoredRequest {
+            uuid: uuid.to_string(),
+            destination: destination.to_string(),
+            method: method.to_string(),
+            uri: match uri {
+                Some(uri) => format!("/{uri}"),
+                None => String::new(),
+            },
+            headers: headers
+                .iter()
+                .map(|(name, value)| {
+                    (
+                        name.to_string(),
+                        value.to_str().unwrap_or_default().to_string(),
+                    )
+                })
+                .collect(),
+            body: base64::engine::general_purpose::STANDARD.encode(
+                to_bytes(body, 10 * 1024 * 1024)
+                    .await
+                    .map_err(|err| Error::other(err.to_string()))?,
+            ),
+        };
+
+        Ok(result)
+    }
+
     pub fn hmac(&self, key: &str) -> String {
         let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(key.as_bytes()) else {
             return String::new();

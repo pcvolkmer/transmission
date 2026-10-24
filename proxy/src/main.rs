@@ -6,7 +6,6 @@ use axum::response::sse::Event;
 use axum::response::{IntoResponse, Response, Sse};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
-use base64::Engine;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
@@ -62,30 +61,17 @@ pub async fn handle_proxy_request(
 
     let uuid = Uuid::new_v4().to_string();
 
-    let stored_request = StoredRequest {
-        uuid: uuid.clone(),
-        destination: path.0.clone(),
-        method: parts.method.to_string(),
-        uri: match path.1 {
-            Some(uri) => format!("/{}", uri),
-            None => "".to_string(),
-        },
-        headers: parts
-            .headers
-            .iter()
-            .map(|(name, value)| {
-                (
-                    name.to_string(),
-                    value.to_str().unwrap_or_default().to_string(),
-                )
-            })
-            .collect(),
-        body: base64::engine::general_purpose::STANDARD.encode(
-            to_bytes(body, 10 * 1024 * 1024)
-                .await
-                .expect("Failed to Base64 encode body")
-                .to_vec(),
-        ),
+    let Ok(stored_request) = StoredRequest::new(
+        &uuid.clone(),
+        &path.0.clone(),
+        parts.method,
+        path.1,
+        parts.headers,
+        body,
+    )
+    .await
+    else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "").into_response();
     };
 
     let hmac = if let Some(agent_config) = &CONFIG.agent(&path.0) {
@@ -141,8 +127,7 @@ pub async fn handle_proxy_request(
         _ = a => {
             state.pending.lock().await.remove(&uuid.clone());
             log::warn!(
-                "ID {} - Timed out",
-                uuid,
+                "ID {uuid} - Timed out"
             );
             Response::builder()
                 .status(StatusCode::GATEWAY_TIMEOUT)
@@ -159,8 +144,7 @@ pub async fn handle_proxy_request(
                 }
                 headers.insert(HeaderName::from_str("X-Via").expect("X-Via header name"), HeaderValue::from_str("transmission").expect("X-Via header value"));
                 log::info!(
-                    "ID {} - Response returned",
-                    uuid,
+                    "ID {uuid} - Response returned"
                 );
                 (
                     StatusCode::from_u16(response.status).expect("Status code set"),
@@ -170,8 +154,7 @@ pub async fn handle_proxy_request(
             } else {
                 state.pending.lock().await.remove(&uuid.clone());
                 log::warn!(
-                    "ID {} - Bad gateway",
-                    uuid,
+                    "ID {uuid} - Bad gateway"
                 );
             Response::builder()
                 .status(StatusCode::BAD_GATEWAY)
@@ -198,10 +181,8 @@ pub async fn handle_sse(
             match rx.recv().await {
                 Ok(message) => if message.destination == path {
                     yield Ok(Event::default().id(message.uuid).event(message.destination).data(message.hmac));
-                } else {
-                    continue;
                 },
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Lagged(_)) => {},
                 Err(broadcast::error::RecvError::Closed) => break,
             }
         }
@@ -222,8 +203,11 @@ pub async fn handle_pending(
         && let Some(agent_config) = &CONFIG.agent(&pending_request.request.destination)
     {
         let hmac = pending_request.request.hmac(&agent_config.shared_secret);
-        let shared_secret = create_shared_secret(&CONFIG.secret(), &agent_config.public_key, &hmac)
-            .expect("Shared secret created");
+        let Ok(shared_secret) =
+            create_shared_secret(&CONFIG.secret(), &agent_config.public_key, &hmac)
+        else {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Crypt error").into_response();
+        };
 
         return (
             StatusCode::OK,
@@ -245,28 +229,27 @@ pub async fn handle_response(
     let mut pending_requests = requests.pending.lock().await;
     if let Some(pending_request) = pending_requests.get_mut(&path.1)
         && pending_request.request.destination == path.0
+        && let Some(response_tx) = pending_request.response_tx.take()
+        && let Some(agent_config) = &CONFIG.agent(&pending_request.request.destination)
     {
-        if let Some(response_tx) = pending_request.response_tx.take()
-            && let Some(agent_config) = &CONFIG.agent(&pending_request.request.destination)
-        {
-            let (_, body) = request.into_parts();
-            let hmac = pending_request.request.hmac(&agent_config.shared_secret);
-            let shared_secret =
-                create_shared_secret(&CONFIG.secret(), &agent_config.public_key, &hmac)
-                    .expect("Shared Secret created");
-            let agent_response = AgentResponse::decrypt_with(
-                &String::from_utf8_lossy(
-                    to_bytes(body, 10 * 1024 * 1024).await.expect("").as_ref(),
-                ),
-                shared_secret,
-            )
-            .expect("Failed to decrypt response");
-            let _ = response_tx.send(agent_response);
-            return (StatusCode::OK, Json(pending_request.request.clone())).into_response();
-        }
+        let (_, body) = request.into_parts();
+        let hmac = pending_request.request.hmac(&agent_config.shared_secret);
+        let Ok(shared_secret) =
+            create_shared_secret(&CONFIG.secret(), &agent_config.public_key, &hmac)
+        else {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Crypt error").into_response();
+        };
+        let Ok(agent_response) = AgentResponse::decrypt_with(
+            &String::from_utf8_lossy(to_bytes(body, 10 * 1024 * 1024).await.expect("").as_ref()),
+            shared_secret,
+        ) else {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Crypt error").into_response();
+        };
+        let _ = response_tx.send(agent_response);
+        return (StatusCode::OK, Json(pending_request.request.clone())).into_response();
     }
 
-    (StatusCode::NOT_FOUND, Json("Not found")).into_response()
+    (StatusCode::NOT_FOUND, "Not found").into_response()
 }
 
 #[tokio::main]
@@ -321,7 +304,7 @@ async fn main() -> Result<(), String> {
             if len > 0 {
                 for uuid in dangling_requests {
                     pending.lock().await.remove(&uuid);
-                    log::warn!("ID {uuid} - removed dangling request")
+                    log::warn!("ID {uuid} - removed dangling request");
                 }
             }
         }

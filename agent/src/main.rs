@@ -157,7 +157,7 @@ async fn handle_event(event: Event) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
 
-    log::info!("ID {} - Response returned", uuid);
+    log::info!("ID {uuid} - Response returned");
 
     Ok(())
 }
