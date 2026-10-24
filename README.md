@@ -117,7 +117,7 @@ So ist es möglich, direkt auf Ebene des Zielsystems den Zugriff zu beschränken
 ## Ablauf eines Requests
 
 Die Anwendung agiert als HTTP-Proxy.
-Wenn der Client oder das System zur Nutzung von `localhost:3000` als Proxy konfiguriert wurde,
+Wenn der Client oder das System zur Nutzung eines Proxys konfiguriert wurde,
 dann kann der Request direkt mit dem Ziel als Host versendet werden:
 
 ```bash
@@ -127,8 +127,18 @@ curl -v http://www.example.com
 Eine Anfrage kann auch direkt an den Proxy gerichtet werden und benötigt die Kennung des Ziel-Agents:
 
 ```bash
-curl -v http://localhost:3000/proxy/www.example.com
+curl -v http://localhost:3000/_proxy/www.example.com
 ```
+
+### Verwendung eines vorgelagerten Reverse-Proxys
+
+Befindet sich die Proxy-Anwendung z.B. hinter einem Reverse-Proxy (wie z.B. Traefik) mit SSL-Terminierung,
+kann auch eine SSL-gesicherte Verbindung aufgebaut werden.
+
+Hierzu muss vonseiten des Agents die Möglichkeit bestehen, den Proxy mit den Pfaden `/_events` und `/_pending`
+zu erreichen.
+
+Clients müssen, je nach Einsatzzweck, die Pfade `/` oder bei Bedarf `/_proxy` erreichen können.
 
 ```mermaid
 sequenceDiagram
