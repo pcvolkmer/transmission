@@ -9,6 +9,7 @@ use chacha20poly1305::{
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use rand::{RngExt, rng};
+use reqwest::header::PROXY_AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::io::Error;
@@ -78,6 +79,38 @@ impl StoredRequest {
         let json = decrypt_with(encrypted, key)?;
         serde_json::from_str(&json).map_err(|_| ())
     }
+
+    pub fn has_proxy_credentials(&self, username: &str, password: &str) -> bool {
+        if let Some(auth) = self.headers.iter().find_map(|header| {
+            if header.0 == PROXY_AUTHORIZATION.to_string() {
+                Some(header.1.clone())
+            } else {
+                None
+            }
+        }) {
+            let Some((method, credentials)) = auth.split_once(' ') else {
+                return false;
+            };
+
+            let Ok(credentials) = base64::engine::general_purpose::STANDARD.decode(credentials)
+            else {
+                return false;
+            };
+
+            let Ok(credentials) = String::from_utf8(credentials) else {
+                return false;
+            };
+
+            let Some((c_username, c_password)) = credentials.split_once(':') else {
+                return false;
+            };
+
+            return method.eq_ignore_ascii_case("basic")
+                && c_username == username
+                && matches!(bcrypt::verify(c_password, password), Ok(true));
+        }
+        false
+    }
 }
 
 #[derive(Debug)]
@@ -144,14 +177,14 @@ fn encode_key(key: &[u8; 32]) -> String {
 fn decode_key(key: &str) -> Result<[u8; 32], Error> {
     let decoded = base64::engine::general_purpose::STANDARD_NO_PAD
         .decode(key)
-        .map_err(|err| Error::other("Cannot decode public key"))?;
+        .map_err(|_| Error::other("Cannot decode public key"))?;
 
-    Ok(decoded
+    decoded
         .try_into()
-        .map_err(|_| Error::other("Cannot decode public key2"))?)
+        .map_err(|_| Error::other("Cannot decode public key"))
 }
 
-fn encrypt_with(value: &str, key: [u8; 32]) -> String {
+pub fn encrypt_with(value: &str, key: [u8; 32]) -> String {
     let cipher = ChaCha20Poly1305::new(Key::from_slice(&key));
     let nonce = Nonce::generate();
 

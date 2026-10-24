@@ -2,7 +2,9 @@ mod config;
 
 use crate::config::Config;
 use reqwest::Method;
-use reqwest::header::{HOST, HeaderMap, HeaderName, HeaderValue};
+use reqwest::header::{
+    HOST, HeaderMap, HeaderName, HeaderValue, PROXY_AUTHENTICATE, PROXY_AUTHORIZATION,
+};
 use reqwest_sse::{Event, EventSource};
 use std::str::FromStr;
 use std::sync::LazyLock;
@@ -53,7 +55,7 @@ async fn main() -> Result<(), String> {
                     );
                 }
             }
-            Err(err) => eprintln!("SSE error: {err}"),
+            Err(err) => log::error!("SSE error: {err}"),
         }
     }
 
@@ -78,6 +80,28 @@ async fn handle_event(event: Event) -> Result<(), String> {
 
     let stored_request = StoredRequest::decrypt_with(&stored_request, shared_secret)
         .map_err(|()| "Decrypt error".to_string())?;
+
+    if let Some((proxy_username, proxy_password)) = CONFIG.proxy_credentials()
+        && !stored_request.has_proxy_credentials(&proxy_username, &proxy_password)
+    {
+        reqwest::Client::new()
+            .post(CONFIG.pending_url_for(&uuid))
+            .body(
+                AgentResponse {
+                    status: 407,
+                    headers: vec![
+                        (PROXY_AUTHENTICATE.to_string(), "basic".to_string()),
+                        ("X-Proxy".to_string(), "Rejected by agent".to_string()),
+                    ],
+                    body: vec![],
+                }
+                .encrypt_with(shared_secret),
+            )
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
 
     let method = Method::from_str(stored_request.method.as_str())
         .map_err(|_| stored_request.method)
@@ -109,22 +133,30 @@ async fn handle_event(event: Event) -> Result<(), String> {
 
     let mut headers = HeaderMap::new();
     for (name, value) in stored_request.headers {
+        if PROXY_AUTHORIZATION.as_str().eq_ignore_ascii_case(&name)
+            || "proxy-connection".eq_ignore_ascii_case(&name)
+        {
+            continue;
+        }
         headers.insert(
             HeaderName::from_bytes(name.as_bytes()).map_err(|err| err.to_string())?,
             HeaderValue::from_bytes(value.as_bytes()).map_err(|err| err.to_string())?,
         );
     }
-    headers.insert(
-        HOST,
-        HeaderValue::from_str(&CONFIG.destination().name).map_err(|err| err.to_string())?,
-    );
+
+    if let Some(host) = &CONFIG.destination().get_host() {
+        headers.insert(
+            HOST,
+            HeaderValue::from_str(host).map_err(|err| err.to_string())?,
+        );
+    }
 
     let response = reqwest::Client::new()
         .request(
             method,
             format!("{}{}", CONFIG.destination().base_url, stored_request.uri),
         )
-        //.headers(headers)
+        .headers(headers)
         .body(stored_request.body)
         .send()
         .await

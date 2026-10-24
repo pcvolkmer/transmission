@@ -38,6 +38,8 @@ Ein Agent kann wie folgt konfiguriert werden. Hier lässt sich auch die erlaubte
 allowed_methods = ["GET"]
 public_key = "xXpx/tsFgrNq9ukGvSGZfD7LsFwiLe5lrM7ufJPCz00"
 private_key = "Ak2+Ye6mEsefdVfcr4zvyXyiGI7L+4bx4zV7XeM3Bgk"
+# Optional Proxy authorization to be sent by client
+proxy_authorization = "tester:$2b$12$D1NYodlxv3HdTbQtEzqltugICqSy08qNLlBsVIX/62KGCWFBmso/q"
 
 [peer]
 url = "http://localhost:3000"
@@ -53,7 +55,8 @@ base_url = "https://www.example.com"
 
 Schlüssel können mit den Utils erstellt werden.
 
-Geheimer Schlüssel:
+#### Geheimer Schlüssel
+
 ```bash
 transmission-utils genkey
 ```
@@ -66,10 +69,23 @@ Public key:  rqzIRrUfzI2u7hdm3pcAmBAvklWF5qwq/CTTcKncbjs
 Private key: 6Vp9tsRFVIgBm/uBQg/vbuVm9C/rQYCqe2M3zz7d32A
 ```
 
+#### Öffentlicher Schlüssel
+
 Zum Ableiten des öffentlichen Schlüssels aus dem geheimen Schlüssel:
+
 ```bash
 echo "<geheimer Schlüssel>" | transmission-utils pubkey
 ```
+
+#### Proxy-Authorization
+
+Hier für Benutzer "tester":
+
+```bash
+transmission-utils proxy-auth tester
+```
+
+Benutzername und Password wird vom Agent ausgewertet.
 
 ## Ende-zu-Ende Verschlüsselung
 
@@ -85,9 +101,30 @@ Dadurch ist sichergestellt, dass muss nur der jeweils öffentliche Teil des Schl
 Zudem wird in jeder Signalisierung eine HMAC-SHA256-Signatur eingebettet und nicht korrekt signierte Anfragen vom
 zugehörigen Agent verworfen.
 
+## Proxy Authorization
+
+Wenn erforderlich, kann für einen Agent ein Benutzername und ein Passwort konfiguriert werden.
+Anfragen werden dann zwar zum Agent weitergeleitet, jedoch bei fehlenden oder ungültigem Passwort
+mit `HTTP 407 - Proxy Authorization Required` abgewiesen.
+
+Ein Client muss in diesem Fall den HTTP-Header
+[`Proxy-Authenticate`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Proxy-Authenticate)
+verwenden.
+Dieser wird nicht an das eigentliche Ziel weitergeleitet.
+
+So ist es möglich, direkt auf Ebene des Zielsystems den Zugriff zu beschränken.
+
 ## Ablauf eines Requests
 
-Eine Anfrage erfolgt immer über den Proxy und benötigt die Kennung des Ziel-Agents:
+Die Anwendung agiert als HTTP-Proxy.
+Wenn der Client oder das System zur Nutzung von `localhost:3000` als Proxy konfiguriert wurde,
+dann kann der Request direkt mit dem Ziel als Host versendet werden:
+
+```bash
+curl -v http://www.example.com
+```
+
+Eine Anfrage kann auch direkt an den Proxy gerichtet werden und benötigt die Kennung des Ziel-Agents:
 
 ```bash
 curl -v http://localhost:3000/proxy/www.example.com
@@ -104,8 +141,14 @@ sequenceDiagram
     P -->> A: Notification with UUID and Signature
     Note over P, A: End-to-End encrypted
     A ->> P: GET stored HTTP-Request by UUID
-    A ->> D: Forward HTTP-Request
-    A ->> P: POST HTTP-Response
+    Note over S, A: Optionale Proxy-Authorization von Source zu Agent
+    alt
+        A ->> D: Forward HTTP-Request
+        A ->> P: POST HTTP-Response
+    else
+        Note over A, P: Wenn konfiguriert und kein Auth
+        A ->> P: POST HTTP 407 - Proxy Auth Required
+    end
     alt
         Note over S, P: Within 1 minute since request ...
         P -->> S: Answer with HTTP-Response

@@ -23,6 +23,7 @@ shared_secret = "test-www.example.com"
 allowed_methods = [ "GET" ]
 public_key = "xXpx/tsFgrNq9ukGvSGZfD7LsFwiLe5lrM7ufJPCz00"
 private_key =  "Ak2+Ye6mEsefdVfcr4zvyXyiGI7L+4bx4zV7XeM3Bgk"
+proxy_authorization = "tester:$2b$12$D1NYodlxv3HdTbQtEzqltugICqSy08qNLlBsVIX/62KGCWFBmso/q"
 
 [peer]
 url = "http://localhost:3000"

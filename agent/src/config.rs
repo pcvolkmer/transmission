@@ -1,5 +1,5 @@
 use clap::Parser;
-use reqwest::Method;
+use reqwest::{Method, Url};
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -20,18 +20,28 @@ pub struct Config {
 pub struct Agent {
     allowed_methods: Vec<String>,
     private_key: String,
+    proxy_authorization: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Peer {
     url: String,
     public_key: String,
+    shared_secret: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Destination {
     pub name: String,
     pub base_url: String,
+}
+
+impl Destination {
+    pub fn get_host(&self) -> Option<String> {
+        let url = Url::parse(&self.base_url).ok()?;
+        let host = url.host()?.to_string();
+        Some(host)
+    }
 }
 
 impl Config {
@@ -62,13 +72,27 @@ impl Config {
     }
 
     pub fn sse_url(&self) -> String {
-        format!("{}/events/{}", self.peer.url, self.destination.name)
+        format!("{}/_events/{}", self.peer.url, self.destination.name)
     }
 
     pub fn pending_url_for(&self, uuid: &str) -> String {
         format!(
-            "{}/pending/{}/{}",
+            "{}/_pending/{}/{}",
             self.peer.url, self.destination.name, uuid
         )
+    }
+
+    pub fn shared_secret(&self) -> String {
+        self.peer.shared_secret.clone()
+    }
+
+    pub fn proxy_credentials(&self) -> Option<(String, String)> {
+        if let Some(proxy_authorization) = self.agent.proxy_authorization.clone() {
+            return proxy_authorization
+                .split_once(':')
+                .map(|(a, b)| (a.to_string(), b.to_string()));
+        }
+
+        None
     }
 }

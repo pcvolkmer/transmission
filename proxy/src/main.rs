@@ -1,6 +1,7 @@
 use crate::config::Config;
 use axum::body::{Body, HttpBody, to_bytes};
 use axum::extract::{Path, Request, State};
+use axum::http::header::HOST;
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::sse::Event;
 use axum::response::{IntoResponse, Response, Sse};
@@ -61,12 +62,19 @@ pub async fn handle_proxy_request(
 
     let uuid = Uuid::new_v4().to_string();
 
+    let mut headers = parts.headers;
+    headers.remove(HOST);
+    headers.insert(
+        HOST,
+        HeaderValue::from_str("test").expect("Invalid host header"),
+    );
+
     let Ok(stored_request) = StoredRequest::new(
         &uuid.clone(),
         &path.0.clone(),
         parts.method,
         path.1,
-        parts.headers,
+        headers,
         body,
     )
     .await
@@ -124,7 +132,7 @@ pub async fn handle_proxy_request(
     let b = response_rx;
 
     let result = select! {
-        _ = a => {
+        () = a => {
             state.pending.lock().await.remove(&uuid.clone());
             log::warn!(
                 "ID {uuid} - Timed out"
@@ -239,8 +247,11 @@ pub async fn handle_response(
         else {
             return (StatusCode::INTERNAL_SERVER_ERROR, "Crypt error").into_response();
         };
+        let Ok(response_bytes) = to_bytes(body, usize::MAX).await else {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Decode error").into_response();
+        };
         let Ok(agent_response) = AgentResponse::decrypt_with(
-            &String::from_utf8_lossy(to_bytes(body, 10 * 1024 * 1024).await.expect("").as_ref()),
+            &String::from_utf8_lossy(response_bytes.as_ref()),
             shared_secret,
         ) else {
             return (StatusCode::INTERNAL_SERVER_ERROR, "Crypt error").into_response();
@@ -311,12 +322,12 @@ async fn main() -> Result<(), String> {
     });
 
     let routes = Router::new()
-        .route("/events/{destination}", get(handle_sse))
-        .route("/proxy/{destination}", any(handle_proxy_request_root))
-        .route("/proxy/{destination}/", any(handle_proxy_request_root))
-        .route("/proxy/{destination}/{*path}", any(handle_proxy_request))
-        .route("/pending/{destination}/{uuid}", get(handle_pending))
-        .route("/pending/{destination}/{uuid}", post(handle_response))
+        .route("/_events/{destination}", get(handle_sse))
+        .route("/_proxy/{destination}", any(handle_proxy_request_root))
+        .route("/_proxy/{destination}/", any(handle_proxy_request_root))
+        .route("/_proxy/{destination}/{*path}", any(handle_proxy_request))
+        .route("/_pending/{destination}/{uuid}", get(handle_pending))
+        .route("/_pending/{destination}/{uuid}", post(handle_response))
         .with_state(state);
 
     match TcpListener::bind(&CONFIG.listen()).await {
