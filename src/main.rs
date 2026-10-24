@@ -1,10 +1,10 @@
+use bcrypt::DEFAULT_COST;
 use clap::{Parser, Subcommand};
 use console::style;
+use dialoguer::Password;
 use std::error::Error;
 use std::io;
 use std::io::Read;
-use bcrypt::DEFAULT_COST;
-use dialoguer::Password;
 use transmission::{create_key_pair, create_pub_key};
 
 #[derive(Parser)]

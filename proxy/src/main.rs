@@ -46,6 +46,27 @@ pub async fn handle_proxy_request_root(
 }
 
 #[allow(clippy::expect_used)]
+pub async fn handle_proxy_request_default(state: State<AppState>, request: Request) -> Response {
+    if let Some(host) = request.uri().host().map(String::from)
+        && let Some(path_and_query) = request.uri().path_and_query()
+    {
+        let mut path = path_and_query.to_string();
+        path.remove(0);
+        let path = Path((host, Some(path)));
+        return handle_proxy_request(state, path, request).await;
+    }
+
+    Response::builder()
+        .status(StatusCode::BAD_REQUEST)
+        .header(
+            HeaderName::from_str("X-Via").expect("X-Via header name"),
+            HeaderValue::from_str("transmission").expect("X-Via header value"),
+        )
+        .body(Body::empty())
+        .expect("Unable to build response")
+}
+
+#[allow(clippy::expect_used)]
 pub async fn handle_proxy_request(
     State(state): State<AppState>,
     Path(path): Path<(String, Option<String>)>,
@@ -322,6 +343,7 @@ async fn main() -> Result<(), String> {
     });
 
     let routes = Router::new()
+        .fallback(any(handle_proxy_request_default))
         .route("/_events/{destination}", get(handle_sse))
         .route("/_proxy/{destination}", any(handle_proxy_request_root))
         .route("/_proxy/{destination}/", any(handle_proxy_request_root))
