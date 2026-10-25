@@ -21,13 +21,13 @@ erlaubt.
 ```toml
 [proxy]
 listen = "[::]:3000"
-public_key = "WsGhvSpDWze5X4Snasu6HG6dpMiiSjHrgGwg4aVjjlQ"
-private_key = "LGS+U6Lah3MfXNeMfqVwaH9+RPtD2Uq9dA22IcA+YN4"
+public_key = "WsGhvSpDWze5X4Snasu6HG6dpMiiSjHrgGwg4aVjjlQ="
+private_key = "LGS+U6Lah3MfXNeMfqVwaH9+RPtD2Uq9dA22IcA+YN4="
 
 # Multiple agents allowed for different destinations
 [[peers]]
 destination = "www.example.com"
-public_key = "xXpx/tsFgrNq9ukGvSGZfD7LsFwiLe5lrM7ufJPCz00"
+public_key = "xXpx/tsFgrNq9ukGvSGZfD7LsFwiLe5lrM7ufJPCz00="
 shared_secret = "test-www.example.com"
 ```
 
@@ -36,14 +36,14 @@ Ein Agent kann wie folgt konfiguriert werden. Hier lässt sich auch die erlaubte
 ```toml
 [agent]
 allowed_methods = ["GET"]
-public_key = "xXpx/tsFgrNq9ukGvSGZfD7LsFwiLe5lrM7ufJPCz00"
-private_key = "Ak2+Ye6mEsefdVfcr4zvyXyiGI7L+4bx4zV7XeM3Bgk"
+public_key = "xXpx/tsFgrNq9ukGvSGZfD7LsFwiLe5lrM7ufJPCz00="
+private_key = "Ak2+Ye6mEsefdVfcr4zvyXyiGI7L+4bx4zV7XeM3Bgk="
 # Optional Proxy authorization to be sent by client
 proxy_authorization = "tester:$2b$12$D1NYodlxv3HdTbQtEzqltugICqSy08qNLlBsVIX/62KGCWFBmso/q"
 
 [peer]
 url = "http://localhost:3000"
-public_key = "WsGhvSpDWze5X4Snasu6HG6dpMiiSjHrgGwg4aVjjlQ"
+public_key = "WsGhvSpDWze5X4Snasu6HG6dpMiiSjHrgGwg4aVjjlQ="
 shared_secret = "test-www.example.com"
 
 [destination]
@@ -65,8 +65,8 @@ Mit der Option `-v` wird das Schlüsselpaar zusammen ausgegeben:
 
 ```angular2html
 $ transmission-utils genkey -v
-Public key:  rqzIRrUfzI2u7hdm3pcAmBAvklWF5qwq/CTTcKncbjs
-Private key: 6Vp9tsRFVIgBm/uBQg/vbuVm9C/rQYCqe2M3zz7d32A
+Public key:  rqzIRrUfzI2u7hdm3pcAmBAvklWF5qwq/CTTcKncbjs=
+Private key: 6Vp9tsRFVIgBm/uBQg/vbuVm9C/rQYCqe2M3zz7d32A=
 ```
 
 #### Öffentlicher Schlüssel

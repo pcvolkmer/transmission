@@ -171,11 +171,11 @@ pub fn create_pub_key(private_key: &str) -> Result<String, Error> {
 }
 
 fn encode_key(key: &[u8; 32]) -> String {
-    base64::engine::general_purpose::STANDARD_NO_PAD.encode(key)
+    base64::engine::general_purpose::STANDARD.encode(key)
 }
 
 fn decode_key(key: &str) -> Result<[u8; 32], Error> {
-    let decoded = base64::engine::general_purpose::STANDARD_NO_PAD
+    let decoded = base64::engine::general_purpose::STANDARD
         .decode(key)
         .map_err(|_| Error::other("Cannot decode public key"))?;
 
@@ -197,8 +197,8 @@ pub fn encrypt_with(value: &str, key: [u8; 32]) -> String {
 
     format!(
         "{}.{}",
-        base64::engine::general_purpose::STANDARD_NO_PAD.encode(ciphertext),
-        base64::engine::general_purpose::STANDARD_NO_PAD.encode(nonce),
+        base64::engine::general_purpose::STANDARD.encode(ciphertext),
+        base64::engine::general_purpose::STANDARD.encode(nonce),
     )
 }
 
@@ -212,12 +212,12 @@ pub fn decrypt_with(encrypted: &str, key: [u8; 32]) -> Result<String, ()> {
     let json = cipher
         .decrypt(
             Nonce::from_slice(
-                base64::engine::general_purpose::STANDARD_NO_PAD
+                base64::engine::general_purpose::STANDARD
                     .decode(nonce.as_bytes())
                     .map_err(|_| ())?
                     .as_slice(),
             ),
-            base64::engine::general_purpose::STANDARD_NO_PAD
+            base64::engine::general_purpose::STANDARD
                 .decode(ciphertext.as_bytes())
                 .map_err(|_| ())?
                 .as_slice(),
