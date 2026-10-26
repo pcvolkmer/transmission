@@ -17,6 +17,7 @@ pub struct Config {
 #[derive(Debug, Deserialize)]
 pub struct Proxy {
     listen: String,
+    post_max_size: Option<String>,
     private_key: String,
 }
 
@@ -48,5 +49,17 @@ impl Config {
 
     pub fn listen(&self) -> String {
         self.proxy.listen.clone()
+    }
+
+    pub fn post_max_size(&self) -> u64 {
+        let default_size = 8 * 1024 * 1024;
+
+        if let Some(post_max_size) = &self.proxy.post_max_size
+            && let Ok(post_max_size) = byte_unit::Byte::parse_str(post_max_size, true)
+        {
+            return post_max_size.as_u64();
+        }
+
+        default_size
     }
 }

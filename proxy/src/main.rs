@@ -74,7 +74,7 @@ pub async fn handle_proxy_request(
 ) -> Response {
     let (parts, body) = request.into_parts();
     if let Some(size) = body.size_hint().exact()
-        && size > 10 * 1024 * 1024
+        && size > CONFIG.post_max_size()
     {
         return (StatusCode::PAYLOAD_TOO_LARGE, "").into_response();
     }
@@ -355,6 +355,10 @@ async fn main() -> Result<(), String> {
     match TcpListener::bind(&CONFIG.listen()).await {
         Ok(listener) => {
             log::info!("Starting application listening on '{}'", CONFIG.listen());
+            log::info!(
+                "Accepting incoming requests up to size of {} bytes",
+                CONFIG.post_max_size()
+            );
             if let Err(err) = axum::serve(listener, routes)
                 .with_graceful_shutdown(shutdown_signal())
                 .await

@@ -21,6 +21,8 @@ erlaubt.
 ```toml
 [proxy]
 listen = "[::]:3000"
+# Optional request size similar to the PHP setting with same name. Defaults to '8MiB'
+post_max_size = "8MiB"
 public_key = "WsGhvSpDWze5X4Snasu6HG6dpMiiSjHrgGwg4aVjjlQ="
 private_key = "LGS+U6Lah3MfXNeMfqVwaH9+RPtD2Uq9dA22IcA+YN4="
 

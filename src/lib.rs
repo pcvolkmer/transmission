@@ -53,7 +53,7 @@ impl StoredRequest {
                 })
                 .collect(),
             body: base64::engine::general_purpose::STANDARD.encode(
-                to_bytes(body, 10 * 1024 * 1024)
+                to_bytes(body, usize::MAX)
                     .await
                     .map_err(|err| Error::other(err.to_string()))?,
             ),
