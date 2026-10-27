@@ -2326,12 +2326,15 @@ dependencies = [
 name = "transmission-agent"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "clap",
+ "hmac",
  "log",
  "reqwest",
  "reqwest-sse",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tokio-stream",
  "toml",
@@ -2350,9 +2353,11 @@ dependencies = [
  "byte-unit",
  "clap",
  "futures-util",
+ "hmac",
  "log",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "toml",
  "tracing",

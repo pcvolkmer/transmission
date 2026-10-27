@@ -1,11 +1,15 @@
 mod config;
 
 use crate::config::Config;
+use base64::Engine;
+use hmac::{Hmac, Mac};
 use reqwest::Method;
 use reqwest::header::{
     HOST, HeaderMap, HeaderName, HeaderValue, PROXY_AUTHENTICATE, PROXY_AUTHORIZATION,
 };
 use reqwest_sse::{Event, EventSource};
+use sha2::Sha256;
+use sha2::digest::KeyInit;
 use std::str::FromStr;
 use std::sync::LazyLock;
 use tokio_stream::StreamExt;
@@ -64,8 +68,19 @@ async fn main() -> Result<(), String> {
 
 async fn handle_event(event: Event) -> Result<(), String> {
     let uuid = event.last_event_id.unwrap_or_default();
+
+    let token = if let Ok(mut hmac) =
+        Hmac::<Sha256>::new_from_slice(&CONFIG.shared_secret().into_bytes())
+    {
+        hmac.update(uuid.as_bytes());
+        base64::engine::general_purpose::STANDARD.encode(hmac.finalize().into_bytes())
+    } else {
+        return Err(format!("Cannot create token to request '{uuid}'"));
+    };
+
     let stored_request = reqwest::Client::new()
         .get(CONFIG.pending_url_for(&uuid))
+        .header("X-Transmission-Token", token.clone())
         .send()
         .await
         .map_err(|e| e.to_string())?
@@ -86,6 +101,7 @@ async fn handle_event(event: Event) -> Result<(), String> {
     {
         reqwest::Client::new()
             .post(CONFIG.pending_url_for(&uuid))
+            .header("X-Transmission-Token", token.clone())
             .body(
                 AgentResponse {
                     status: 407,
@@ -110,6 +126,7 @@ async fn handle_event(event: Event) -> Result<(), String> {
     if !CONFIG.is_method_allowed(&method) {
         reqwest::Client::new()
             .post(CONFIG.pending_url_for(&uuid))
+            .header("X-Transmission-Token", token.clone())
             .body(
                 AgentResponse {
                     status: 405,
@@ -162,8 +179,9 @@ async fn handle_event(event: Event) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
 
-    let _ = reqwest::Client::new()
+    let response = reqwest::Client::new()
         .post(CONFIG.pending_url_for(&uuid))
+        .header("X-Transmission-Token", token)
         .body(
             AgentResponse {
                 status: response.status().as_u16(),
@@ -188,6 +206,13 @@ async fn handle_event(event: Event) -> Result<(), String> {
         .send()
         .await
         .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Sending response failed with status '{}'",
+            response.status()
+        ));
+    }
 
     log::info!("ID {uuid} - Response returned");
 

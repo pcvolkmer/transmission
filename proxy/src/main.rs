@@ -7,6 +7,10 @@ use axum::response::sse::Event;
 use axum::response::{IntoResponse, Response, Sse};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
+use base64::Engine;
+use hmac::Hmac;
+use sha2::Sha256;
+use sha2::digest::{KeyInit, Mac};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
@@ -224,7 +228,16 @@ pub async fn handle_sse(
 pub async fn handle_pending(
     State(state): State<AppState>,
     Path(path): Path<(String, String)>,
+    request: Request<Body>,
 ) -> Response {
+    if let Some(token) = request.headers().get("X-Transmission-Token")
+        && check_auth_token(&path, token.to_str().unwrap_or_default())
+    {
+        // Token OK
+    } else {
+        return (StatusCode::UNAUTHORIZED, "Invalid token").into_response();
+    };
+
     let requests = state.clone();
     let mut pending_requests = requests.pending.lock().await;
     if let Some(pending_request) = pending_requests.get_mut(&path.1)
@@ -254,6 +267,14 @@ pub async fn handle_response(
     Path(path): Path<(String, String)>,
     request: Request,
 ) -> Response {
+    if let Some(token) = request.headers().get("X-Transmission-Token")
+        && check_auth_token(&path, token.to_str().unwrap_or_default())
+    {
+        // Token OK
+    } else {
+        return (StatusCode::UNAUTHORIZED, "Invalid token").into_response();
+    };
+
     let requests = state.clone();
     let mut pending_requests = requests.pending.lock().await;
     if let Some(pending_request) = pending_requests.get_mut(&path.1)
@@ -282,6 +303,19 @@ pub async fn handle_response(
     }
 
     (StatusCode::NOT_FOUND, "Not found").into_response()
+}
+
+fn check_auth_token(path: &(String, String), token_header: &str) -> bool {
+    let agent = path.clone().0;
+    let uuid = path.clone().1;
+    if let Ok(token) = base64::engine::general_purpose::STANDARD.decode(&token_header.as_bytes())
+        && let Some(agent) = &CONFIG.agent(&agent)
+        && let Ok(mut hmac) = Hmac::<Sha256>::new_from_slice(agent.shared_secret.as_bytes())
+    {
+        hmac.update(uuid.as_bytes());
+        return hmac.verify_slice(token.as_slice()).is_ok();
+    }
+    false
 }
 
 #[tokio::main]

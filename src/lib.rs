@@ -63,12 +63,12 @@ impl StoredRequest {
     }
 
     pub fn hmac(&self, key: &str) -> String {
-        let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(key.as_bytes()) else {
+        let Ok(mut hmac) = Hmac::<Sha256>::new_from_slice(key.as_bytes()) else {
             return String::new();
         };
-        mac.update(serde_json::to_string(self).unwrap_or_default().as_bytes());
+        hmac.update(serde_json::to_string(self).unwrap_or_default().as_bytes());
 
-        hex::encode(mac.finalize().into_bytes())
+        hex::encode(hmac.finalize().into_bytes())
     }
 
     pub fn encrypt_with(&self, key: [u8; 32]) -> String {
