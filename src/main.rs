@@ -29,8 +29,6 @@ enum SubCommand {
     Pubkey,
     #[command(about = "Generates BCrypt credentials for Agents Proxy-Authentication")]
     ProxyAuth { username: String },
-    #[command(about = "Generates a new keypair and writes initial proxy config to stdout")]
-    GenConfig,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -58,13 +56,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .interact()?;
             let hash = bcrypt::hash(password, DEFAULT_COST)?;
             println!("{username}:{hash}");
-        }
-        SubCommand::GenConfig => {
-            let (private, public) = create_key_pair();
-            println!("[proxy]");
-            println!(r#"listen = "[::]:3000""#);
-            println!(r#"public_key = "{public}""#);
-            println!(r#"private_key = "{private}""#);
         }
     }
 
