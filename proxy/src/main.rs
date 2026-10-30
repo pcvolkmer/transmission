@@ -76,6 +76,9 @@ pub async fn handle_proxy_request(
     Path(path): Path<(String, Option<String>)>,
     request: Request,
 ) -> Response {
+    let destination = path.0.clone();
+    let path = path.1;
+
     let (parts, body) = request.into_parts();
     if let Some(size) = body.size_hint().exact()
         && size > CONFIG.post_max_size()
@@ -96,9 +99,9 @@ pub async fn handle_proxy_request(
 
     let Ok(stored_request) = StoredRequest::new(
         &uuid.clone(),
-        &path.0.clone(),
+        &destination.clone(),
         parts.method,
-        path.1,
+        path,
         headers,
         body,
     )
@@ -107,8 +110,8 @@ pub async fn handle_proxy_request(
         return (StatusCode::INTERNAL_SERVER_ERROR, "").into_response();
     };
 
-    let hmac = if let Some(agent_config) = &CONFIG.agent(&path.0) {
-        stored_request.hmac(&agent_config.shared_secret)
+    let hmac = if let Ok(shared_secret) = &CONFIG.shared_secret(&destination, &uuid) {
+        stored_request.hmac(shared_secret)
     } else {
         log::error!(
             "ID {} - skipping {} request for unknown agent '{}'",
@@ -148,7 +151,7 @@ pub async fn handle_proxy_request(
     );
 
     let _ = state.tx.send(EventSignal {
-        destination: path.0,
+        destination,
         uuid: uuid.clone(),
         hmac: hmac.clone(),
     });
@@ -230,24 +233,23 @@ pub async fn handle_pending(
     Path(path): Path<(String, String)>,
     request: Request<Body>,
 ) -> Response {
+    let destination = path.0.clone();
+    let uuid = path.1.clone();
+
     if let Some(token) = request.headers().get("X-Transmission-Token")
         && check_auth_token(&path, token.to_str().unwrap_or_default())
     {
         // Token OK
     } else {
         return (StatusCode::UNAUTHORIZED, "Invalid token").into_response();
-    };
+    }
 
     let requests = state.clone();
     let mut pending_requests = requests.pending.lock().await;
-    if let Some(pending_request) = pending_requests.get_mut(&path.1)
-        && pending_request.request.destination == path.0
-        && let Some(agent_config) = &CONFIG.agent(&pending_request.request.destination)
+    if let Some(pending_request) = pending_requests.get_mut(&uuid)
+        && pending_request.request.destination == destination
     {
-        let hmac = pending_request.request.hmac(&agent_config.shared_secret);
-        let Ok(shared_secret) =
-            create_shared_secret(&CONFIG.secret(), &agent_config.public_key, &hmac)
-        else {
+        let Ok(shared_secret) = CONFIG.shared_secret(&destination, &uuid) else {
             return (StatusCode::INTERNAL_SERVER_ERROR, "Crypt error").into_response();
         };
 
@@ -267,25 +269,27 @@ pub async fn handle_response(
     Path(path): Path<(String, String)>,
     request: Request,
 ) -> Response {
+    let destination = path.0.clone();
+    let uuid = path.1.clone();
+
     if let Some(token) = request.headers().get("X-Transmission-Token")
         && check_auth_token(&path, token.to_str().unwrap_or_default())
     {
         // Token OK
     } else {
         return (StatusCode::UNAUTHORIZED, "Invalid token").into_response();
-    };
+    }
 
     let requests = state.clone();
     let mut pending_requests = requests.pending.lock().await;
-    if let Some(pending_request) = pending_requests.get_mut(&path.1)
-        && pending_request.request.destination == path.0
+    if let Some(pending_request) = pending_requests.get_mut(&uuid)
+        && pending_request.request.destination == destination
         && let Some(response_tx) = pending_request.response_tx.take()
         && let Some(agent_config) = &CONFIG.agent(&pending_request.request.destination)
     {
         let (_, body) = request.into_parts();
-        let hmac = pending_request.request.hmac(&agent_config.shared_secret);
         let Ok(shared_secret) =
-            create_shared_secret(&CONFIG.secret(), &agent_config.public_key, &hmac)
+            create_shared_secret(&CONFIG.secret(), &agent_config.public_key, &uuid)
         else {
             return (StatusCode::INTERNAL_SERVER_ERROR, "Crypt error").into_response();
         };
@@ -306,11 +310,11 @@ pub async fn handle_response(
 }
 
 fn check_auth_token(path: &(String, String), token_header: &str) -> bool {
-    let agent = path.clone().0;
-    let uuid = path.clone().1;
-    if let Ok(token) = base64::engine::general_purpose::STANDARD.decode(&token_header.as_bytes())
-        && let Some(agent) = &CONFIG.agent(&agent)
-        && let Ok(mut hmac) = Hmac::<Sha256>::new_from_slice(agent.shared_secret.as_bytes())
+    let agent = path.0.clone();
+    let uuid = path.1.clone();
+    if let Ok(token) = base64::engine::general_purpose::STANDARD.decode(token_header.as_bytes())
+        && let Ok(shared_secret) = &CONFIG.shared_secret(&agent, &uuid)
+        && let Ok(mut hmac) = Hmac::<Sha256>::new_from_slice(shared_secret)
     {
         hmac.update(uuid.as_bytes());
         return hmac.verify_slice(token.as_slice()).is_ok();

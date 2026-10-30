@@ -6,14 +6,12 @@
 listen = "[::]:3000"
 # Optional request size similar to the PHP setting with same name. Defaults to '8MiB'
 post_max_size = "8MiB"
-public_key = "WsGhvSpDWze5X4Snasu6HG6dpMiiSjHrgGwg4aVjjlQ="
 private_key =  "LGS+U6Lah3MfXNeMfqVwaH9+RPtD2Uq9dA22IcA+YN4="
 
 # Multiple agents allowed for different destinations
 [[peers]]
 destination = "www.example.com"
 public_key = "xXpx/tsFgrNq9ukGvSGZfD7LsFwiLe5lrM7ufJPCz00="
-shared_secret = "test-www.example.com"
 
 
 
@@ -23,7 +21,6 @@ shared_secret = "test-www.example.com"
 
 [agent]
 allowed_methods = [ "GET" ]
-public_key = "xXpx/tsFgrNq9ukGvSGZfD7LsFwiLe5lrM7ufJPCz00="
 private_key =  "Ak2+Ye6mEsefdVfcr4zvyXyiGI7L+4bx4zV7XeM3Bgk="
 # Optional Proxy authorization to be sent by client
 proxy_authorization = "tester:$2b$12$D1NYodlxv3HdTbQtEzqltugICqSy08qNLlBsVIX/62KGCWFBmso/q"
@@ -31,7 +28,6 @@ proxy_authorization = "tester:$2b$12$D1NYodlxv3HdTbQtEzqltugICqSy08qNLlBsVIX/62K
 [peer]
 url = "http://localhost:3000"
 public_key = "WsGhvSpDWze5X4Snasu6HG6dpMiiSjHrgGwg4aVjjlQ="
-shared_secret = "test-www.example.com"
 
 [destination]
 name = "www.example.com"

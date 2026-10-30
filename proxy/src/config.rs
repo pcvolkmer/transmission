@@ -1,6 +1,8 @@
 use clap::Parser;
 use serde::Deserialize;
+use std::io::Error;
 use std::path::PathBuf;
+use transmission::create_shared_secret;
 
 #[derive(Parser, Debug)]
 struct Cli {
@@ -25,7 +27,6 @@ pub struct Proxy {
 pub struct Agent {
     destination: String,
     pub public_key: String,
-    pub shared_secret: String,
 }
 
 impl Config {
@@ -45,6 +46,13 @@ impl Config {
             .iter()
             .find(|agent| agent.destination == destination)
             .take()
+    }
+
+    pub fn shared_secret(&self, destination: &str, salt: &str) -> Result<[u8; 32], Error> {
+        let Some(agent) = self.agent(destination) else {
+            Err(Error::other("no agent to share"))?
+        };
+        create_shared_secret(&self.secret(), &agent.public_key, salt)
     }
 
     pub fn listen(&self) -> String {

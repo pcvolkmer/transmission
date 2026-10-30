@@ -62,8 +62,8 @@ impl StoredRequest {
         Ok(result)
     }
 
-    pub fn hmac(&self, key: &str) -> String {
-        let Ok(mut hmac) = Hmac::<Sha256>::new_from_slice(key.as_bytes()) else {
+    pub fn hmac(&self, key: &[u8; 32]) -> String {
+        let Ok(mut hmac) = Hmac::<Sha256>::new_from_slice(key) else {
             return String::new();
         };
         hmac.update(serde_json::to_string(self).unwrap_or_default().as_bytes());

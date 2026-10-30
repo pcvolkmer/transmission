@@ -3,10 +3,10 @@ mod config;
 use crate::config::Config;
 use base64::Engine;
 use hmac::{Hmac, Mac};
-use reqwest::Method;
 use reqwest::header::{
     HOST, HeaderMap, HeaderName, HeaderValue, PROXY_AUTHENTICATE, PROXY_AUTHORIZATION,
 };
+use reqwest::{Method, StatusCode};
 use reqwest_sse::{Event, EventSource};
 use sha2::Sha256;
 use sha2::digest::KeyInit;
@@ -70,7 +70,7 @@ async fn handle_event(event: Event) -> Result<(), String> {
     let uuid = event.last_event_id.unwrap_or_default();
 
     let token = if let Ok(mut hmac) =
-        Hmac::<Sha256>::new_from_slice(&CONFIG.shared_secret().into_bytes())
+        Hmac::<Sha256>::new_from_slice(&CONFIG.shared_secret(&uuid).map_err(|err| err.to_string())?)
     {
         hmac.update(uuid.as_bytes());
         base64::engine::general_purpose::STANDARD.encode(hmac.finalize().into_bytes())
@@ -90,11 +90,30 @@ async fn handle_event(event: Event) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
 
-    let shared_secret = create_shared_secret(&CONFIG.secret(), &CONFIG.other_public(), &event.data)
+    let shared_secret = create_shared_secret(&CONFIG.secret(), &CONFIG.other_public(), &uuid)
         .map_err(|_| "Failed to create shared secret")?;
 
     let stored_request = StoredRequest::decrypt_with(&stored_request, shared_secret)
         .map_err(|()| "Decrypt error".to_string())?;
+
+    if stored_request.hmac(&shared_secret) != event.data {
+        reqwest::Client::new()
+            .post(CONFIG.pending_url_for(&uuid))
+            .header("X-Transmission-Token", token)
+            .body(
+                AgentResponse {
+                    status: StatusCode::BAD_GATEWAY.as_u16(),
+                    headers: vec![],
+                    body: vec![],
+                }
+                .encrypt_with(shared_secret),
+            )
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        return Err("Signature verification failed".to_string());
+    }
 
     if let Some((proxy_username, proxy_password)) = CONFIG.proxy_credentials()
         && !stored_request.has_proxy_credentials(&proxy_username, &proxy_password)

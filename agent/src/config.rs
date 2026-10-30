@@ -1,7 +1,9 @@
 use clap::Parser;
 use reqwest::{Method, Url};
 use serde::Deserialize;
+use std::io::Error;
 use std::path::PathBuf;
+use transmission::create_shared_secret;
 
 #[derive(Parser, Debug)]
 struct Cli {
@@ -27,7 +29,6 @@ pub struct Agent {
 pub struct Peer {
     url: String,
     public_key: String,
-    shared_secret: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -82,8 +83,8 @@ impl Config {
         )
     }
 
-    pub fn shared_secret(&self) -> String {
-        self.peer.shared_secret.clone()
+    pub fn shared_secret(&self, salt: &str) -> Result<[u8; 32], Error> {
+        create_shared_secret(&self.secret(), &self.other_public(), salt)
     }
 
     pub fn proxy_credentials(&self) -> Option<(String, String)> {
